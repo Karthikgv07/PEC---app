@@ -11,7 +11,7 @@ import seaborn as sns
 st.title("Export Clearance Approval Prediction App")
 
 # Load cleaned data
-df = pd.read_csv("data/cleaned_transactions.csv")
+df = pd.read_csv("cleaned_transactions.csv")
 
 # Load model & pipeline
 model = pickle.load(open("model/rf_smote_model.pkl", "rb"))
