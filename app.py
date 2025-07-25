@@ -54,7 +54,7 @@ st.subheader("📢 Prediction Result")
 st.warning("⚠️ No trained model found. Prediction is simulated based on input.")
 
 # Optional: Match user input against similar past records
-if 'Approval Status' in df.columns:
+if 'Authorization Status' in df.columns:
     try:
         from sklearn.neighbors import NearestNeighbors
 
@@ -63,10 +63,10 @@ if 'Approval Status' in df.columns:
         distance, index = nbrs.kneighbors(input_df[feature_cols])
 
         matched_row = df.iloc[index[0][0]]
-        prediction = matched_row.get("Approval Status", "Unknown")
+        prediction = matched_row.get("Authorization Status", "Unknown")
         st.success(f"🟢 Most similar past transaction was: **{prediction}**")
 
     except Exception as e:
         st.error(f"⚠️ Unable to simulate prediction: {e}")
 else:
-    st.info("ℹ️ Add a column 'Approval Status' in the CSV to simulate predictions.")
+    st.info("ℹ️ Add a column 'Authorization Status' in the CSV to simulate predictions.")
