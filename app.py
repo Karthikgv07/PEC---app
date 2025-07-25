@@ -1,72 +1,102 @@
-# app.py
 import streamlit as st
 import pandas as pd
-import numpy as np
-import os
+import joblib
+import warnings
 
-# ------------------- Title -------------------
-st.title("🚢 Export Clearance Approval Prediction App")
+warnings.filterwarnings('ignore')
 
-# ---------------- Load cleaned data ----------------
-DATA_PATH = "Cleaned_Transaction_Data.csv"
+# --- Page Configuration ---
+st.set_page_config(
+    page_title="Export Authorization Predictor",
+    page_icon="🚢",
+    layout="wide"
+)
 
-if not os.path.exists(DATA_PATH):
-    st.error(f"🚫 File not found: {DATA_PATH}")
-    st.stop()
-
-df = pd.read_csv(DATA_PATH)
-
-# --------------- Sidebar Input ----------------
-st.sidebar.header("🧾 User Input")
-
-sample = {}
-categorical_inputs = {
-    'Country of FD Name': df['Country of FD Name'].dropna().unique().tolist(),
-    'Item Category': df['Item Category'].dropna().unique().tolist(),
-    'Invoice Status': df['Invoice Status'].dropna().unique().tolist(),
-    'Extra Fields Final Destination': df['Extra Fields Final Destination'].dropna().unique().tolist(),
-    'Sourcing Type': df['Sourcing Type'].dropna().unique().tolist(),
-}
-
-# --- Collect categorical inputs ---
-for col in categorical_inputs:
-    sample[col] = st.sidebar.selectbox(f"{col}:", categorical_inputs[col])
-
-# --- Collect numerical inputs ---
-numerical_columns = [
-    'Quantity', 'Item Net Weight', 'Item Grams', 'Rate',
-    'Invoice Quantity', 'Minimum Order Value', 'Load Deviation'
-]
-
-for col in numerical_columns:
-    default_val = float(df[col].mean()) if col in df.columns else 0.0
-    sample[col] = st.sidebar.number_input(f"{col}:", value=default_val)
-
-# Convert input to DataFrame
-input_df = pd.DataFrame([sample])
-
-# ---------------- Display Input ----------------
-st.subheader("🧮 User Input Summary")
-st.dataframe(input_df)
-
-# ---------------- Simulate Prediction ----------------
-st.subheader("📢 Prediction Result")
-st.warning("⚠️ No trained model found. Prediction is simulated based on input.")
-
-# Optional: Match user input against similar past records
-if 'Authorization Status' in df.columns:
+# --- Model Loading ---
+@st.cache_resource
+def load_model():
+    """Load the pre-trained model from the file."""
     try:
-        from sklearn.neighbors import NearestNeighbors
+        model = joblib.load('export_clearance_model_final.pkl')
+        return model
+    except FileNotFoundError:
+        st.error("Model file not found. Please ensure 'export_clearance_model_final.pkl' is in the repository.")
+        return None
 
-        feature_cols = numerical_columns  # use numerical features for matching
-        nbrs = NearestNeighbors(n_neighbors=1).fit(df[feature_cols].dropna())
-        distance, index = nbrs.kneighbors(input_df[feature_cols])
+model = load_model()
 
-        matched_row = df.iloc[index[0][0]]
-        prediction = matched_row.get("Authorization Status", "Unknown")
-        st.success(f"🟢 Most similar past transaction was: **{prediction}**")
+# --- Main Application ---
+st.title("🚢 Export Authorization Status Predictor")
+st.markdown("""
+This application predicts whether an export transaction will be **Approved** or **Not Approved**.
+Upload a CSV file with transaction data to get predictions. Please ensure your CSV has the required columns.
+""")
+
+# --- File Uploader ---
+uploaded_file = st.file_uploader("Choose a CSV file for batch prediction", type="csv")
+
+if uploaded_file is not None and model is not None:
+    try:
+        # Load the uploaded data
+        input_df = pd.read_csv(uploaded_file)
+        st.success("CSV file uploaded successfully!")
+        
+        # --- Feature Engineering ---
+        # Create the same features as in your training script
+        st.write("Applying feature engineering...")
+        
+        # Basic Features
+        input_df['Transaction_Value'] = input_df['Quantity'] * input_df['Rate']
+        
+        # Advanced Aggregation Features
+        # Note: These aggregations are based on the *uploaded data itself* for prediction
+        input_df['Load_Deviation'] = input_df['Quantity'] - input_df['Minimum Order Value']
+        input_df['Value_per_Weight'] = input_df['Transaction_Value'] / (input_df['Item Net Weight'] + 1e-6)
+
+        item_agg = input_df.groupby('Item Category')['Transaction_Value'].agg(['mean', 'std', 'max']).add_prefix('Item_Value_')
+        input_df = input_df.join(item_agg, on='Item Category')
+
+        country_agg = input_df.groupby('Country of FD Name')['Quantity'].agg(['mean', 'sum']).add_prefix('Country_Quant_')
+        input_df = input_df.join(country_agg, on='Country of FD Name')
+
+        input_df.fillna(0, inplace=True)
+
+        # Ensure all required features are present
+        required_features = [
+            'Quantity', 'Item Net Weight', 'Rate', 'Minimum Order Value', 'Transaction_Value',
+            'Load_Deviation', 'Value_per_Weight', 'Item_Value_mean', 'Item_Value_std',
+            'Item_Value_max', 'Country_Quant_mean', 'Country_Quant_sum',
+            'Country of FD Name', 'Item Category', 'Sourcing Type'
+        ]
+        
+        X_predict = input_df[required_features]
+
+        # --- Prediction ---
+        st.write("Making predictions...")
+        predictions = model.predict(X_predict)
+        prediction_proba = model.predict_proba(X_predict)
+
+        # --- Display Results ---
+        result_df = input_df.copy()
+        result_df['Predicted Status'] = ['Approved' if pred == 1 else 'Not Approved' for pred in predictions]
+        result_df['Approval Probability (%)'] = [f"{proba[1]*100:.2f}" for proba in prediction_proba]
+
+        st.subheader("Prediction Results")
+        st.dataframe(result_df[['Country of FD Name', 'Item Category', 'Quantity', 'Predicted Status', 'Approval Probability (%)']])
+
+        # --- Download Button ---
+        @st.cache_data
+        def convert_df_to_csv(df):
+            return df.to_csv(index=False).encode('utf-8')
+
+        csv_results = convert_df_to_csv(result_df)
+        st.download_button(
+            label="Download Results as CSV",
+            data=csv_results,
+            file_name="predicted_authorizations.csv",
+            mime="text/csv",
+        )
 
     except Exception as e:
-        st.error(f"⚠️ Unable to simulate prediction: {e}")
-else:
-    st.info("ℹ️ Add a column 'Authorization Status' in the CSV to simulate predictions.")
+        st.error(f"An error occurred: {e}")
+        st.warning("Please ensure your CSV file is formatted correctly and includes all necessary columns.")
