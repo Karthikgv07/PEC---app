@@ -11,7 +11,7 @@ import seaborn as sns
 st.title("Export Clearance Approval Prediction App")
 
 # Load cleaned data
-df = pd.read_csv("Karthikgv07/Predictive_app/Cleaned_Transaction_Data.csv")
+df = pd.read_csv("Predictive_app/Cleaned_Transaction_Data.csv")
 
 
 # Load model & pipeline
