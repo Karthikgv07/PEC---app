@@ -9,46 +9,46 @@ warnings.filterwarnings('ignore')
 # --- Page Configuration ---
 st.set_page_config(
     page_title="Export Authorization Predictor",
-    page_icon="Prediction",
+    page_icon="🔍",
     layout="wide"
 )
 
 # --- Model Loader ---
 @st.cache_resource
 def load_model():
-    """Load the trained ML model from a pickle file."""
+    """Load the trained ML model from a joblib file."""
     try:
-        model = joblib.load('best_export_clearance_model.pkl')
+        model = joblib.load('export_predictor_model.joblib')  # renamed to .joblib
         return model
     except FileNotFoundError:
-        st.error(" Model file not found. Please upload 'best_export_clearance_model.pkl' to the same folder.")
+        st.error("Model file not found. Please upload 'best_export_clearance_model.joblib' to the same folder.")
         return None
     except Exception as e:
-        st.error(f" Unexpected error while loading model: {e}")
+        st.error(f"Unexpected error while loading model: {e}")
         return None
 
 # Load model once
 model = load_model()
 
 # --- UI Header ---
-st.title(" Export Authorization Status Predictor")
+st.title("Export Authorization Status Predictor")
 st.markdown("""
 This app predicts whether a transaction will be **Approved** or **Not Approved** based on your data.  
 Upload a `.csv` file with proper column format.
 """)
 
 # --- Upload File ---
-uploaded_file = st.file_uploader(" Upload your CSV file", type="csv")
+uploaded_file = st.file_uploader("Upload your CSV file", type="csv")
 
 if uploaded_file is not None:
     if model is None:
-        st.warning(" Model not loaded. Cannot make predictions.")
+        st.warning("Model not loaded. Cannot make predictions.")
     else:
         try:
             # Load CSV
             input_df = pd.read_csv(uploaded_file)
             original_df = input_df.copy()
-            st.success(" File uploaded successfully!")
+            st.success("File uploaded successfully!")
 
             # --- Feature Engineering (must match training pipeline exactly) ---
             input_df['Load Deviation'] = input_df['Quantity'] - input_df['Minimum Order Value']
@@ -64,12 +64,12 @@ if uploaded_file is not None:
             # --- Check Required Columns ---
             missing = [col for col in required_features if col not in input_df.columns]
             if missing:
-                st.error(f" Missing columns: {', '.join(missing)}")
+                st.error(f"Missing columns: {', '.join(missing)}")
             else:
                 X = input_df[required_features]
 
                 # --- Predictions ---
-                st.info(" Making predictions...")
+                st.info("Making predictions...")
                 preds = model.predict(X)
                 probs = model.predict_proba(X)
 
@@ -78,7 +78,7 @@ if uploaded_file is not None:
                 original_df['Approval Probability (%)'] = [f"{p[1]*100:.2f}" for p in probs]
 
                 # --- Show Results ---
-                st.subheader(" Prediction Results")
+                st.subheader("Prediction Results")
                 st.dataframe(original_df[[
                     'Country of FD Name', 'Item Category', 'Quantity', 'Transaction_Value',
                     'Predicted Status', 'Approval Probability (%)'
@@ -90,7 +90,7 @@ if uploaded_file is not None:
                     return df.to_csv(index=False).encode('utf-8')
 
                 st.download_button(
-                    label=" Download Predictions as CSV",
+                    label="📥 Download Predictions as CSV",
                     data=convert_df(original_df),
                     file_name='predicted_results.csv',
                     mime='text/csv'
