@@ -3,104 +3,99 @@ import pandas as pd
 import joblib
 import warnings
 
-# Suppress warnings in the deployed app for a cleaner interface
+# Suppress warnings for clean UI
 warnings.filterwarnings('ignore')
 
 # --- Page Configuration ---
 st.set_page_config(
     page_title="Export Authorization Predictor",
-    page_icon="🚢",
+    page_icon="Prediction",
     layout="wide"
 )
 
-# --- Model Loading ---
+# --- Model Loader ---
 @st.cache_resource
 def load_model():
-    """Load the pre-trained model from the .pkl file."""
+    """Load the trained ML model from a pickle file."""
     try:
-        # This path must match the name of the model file in your GitHub repository
         model = joblib.load('best_export_clearance_model.pkl')
         return model
     except FileNotFoundError:
-        st.error("Model file not found. Please ensure 'best_export_clearance_model.pkl' is in your GitHub repository.")
+        st.error(" Model file not found. Please upload 'best_export_clearance_model.pkl' to the same folder.")
         return None
     except Exception as e:
-        st.error(f"An error occurred while loading the model: {e}")
+        st.error(f" Unexpected error while loading model: {e}")
         return None
 
+# Load model once
 model = load_model()
 
-# --- Main Application Interface ---
-st.title("🚢 Export Authorization Status Predictor")
+# --- UI Header ---
+st.title(" Export Authorization Status Predictor")
 st.markdown("""
-This application predicts whether an export transaction will be **Approved** or **Not Approved**.
-Upload a CSV file with your transaction data to get predictions. Please ensure your CSV has the same columns as the data used for training the model.
+This app predicts whether a transaction will be **Approved** or **Not Approved** based on your data.  
+Upload a `.csv` file with proper column format.
 """)
 
-# --- File Uploader ---
-uploaded_file = st.file_uploader("Choose a CSV file for batch prediction", type="csv")
+# --- Upload File ---
+uploaded_file = st.file_uploader(" Upload your CSV file", type="csv")
 
-if uploaded_file is not None and model is not None:
-    try:
-        # Load the user's data
-        input_df = pd.read_csv(uploaded_file)
-        st.success("CSV file uploaded successfully! Processing...")
-        
-        # Keep a copy of the original data for display purposes
-        original_df = input_df.copy()
+if uploaded_file is not None:
+    if model is None:
+        st.warning(" Model not loaded. Cannot make predictions.")
+    else:
+        try:
+            # Load CSV
+            input_df = pd.read_csv(uploaded_file)
+            original_df = input_df.copy()
+            st.success(" File uploaded successfully!")
 
-        # --- Feature Engineering (This must be IDENTICAL to your training script) ---
-        st.write("Applying feature engineering...")
-        
-        # Re-create the exact same features that the model was trained on
-        input_df['Load Deviation'] = input_df['Quantity'] - input_df['Minimum Order Value']
-        input_df['Transaction_Value'] = input_df['Quantity'] * input_df['Rate']
+            # --- Feature Engineering (must match training pipeline exactly) ---
+            input_df['Load Deviation'] = input_df['Quantity'] - input_df['Minimum Order Value']
+            input_df['Transaction_Value'] = input_df['Quantity'] * input_df['Rate']
 
-        # Define the exact list of features the model expects
-        required_features = [
-            'Country of FD Name', 'Item Category', 'Quantity', 'Item Net Weight', 'Rate',
-            'Invoice Quantity', 'Invoice Status', 'Extra Fields Final Destination',
-            'Sourcing Type', 'Minimum Order Value', 'Load Deviation', 'Transaction_Value'
-        ]
-        
-        # Check if all required columns exist in the uploaded file
-        missing_cols = [col for col in required_features if col not in input_df.columns]
-        if missing_cols:
-            st.error(f"The uploaded CSV is missing the following required columns: {', '.join(missing_cols)}")
-        else:
-            # Select the feature columns in the correct order
-            X_predict = input_df[required_features]
+            # Expected columns
+            required_features = [
+                'Country of FD Name', 'Item Category', 'Quantity', 'Item Net Weight', 'Rate',
+                'Invoice Quantity', 'Invoice Status', 'Extra Fields Final Destination',
+                'Sourcing Type', 'Minimum Order Value', 'Load Deviation', 'Transaction_Value'
+            ]
 
-            # --- Prediction ---
-            st.write("Making predictions...")
-            predictions = model.predict(X_predict)
-            prediction_proba = model.predict_proba(X_predict)
+            # --- Check Required Columns ---
+            missing = [col for col in required_features if col not in input_df.columns]
+            if missing:
+                st.error(f" Missing columns: {', '.join(missing)}")
+            else:
+                X = input_df[required_features]
 
-            # --- Display Results ---
-            original_df['Predicted Status'] = ['Approved' if pred == 1 else 'Not Approved' for pred in predictions]
-            original_df['Approval Probability (%)'] = [f"{proba[1]*100:.2f}" for proba in prediction_proba]
+                # --- Predictions ---
+                st.info(" Making predictions...")
+                preds = model.predict(X)
+                probs = model.predict_proba(X)
 
-            st.subheader("Prediction Results")
-            # Display key original columns plus the new prediction columns
-            st.dataframe(original_df[[
-                'Country of FD Name', 'Item Category', 'Quantity', 'Transaction_Value', 
-                'Predicted Status', 'Approval Probability (%)'
-            ]])
+                # Add prediction output
+                original_df['Predicted Status'] = ['Approved' if p == 1 else 'Not Approved' for p in preds]
+                original_df['Approval Probability (%)'] = [f"{p[1]*100:.2f}" for p in probs]
 
-            # --- Download Button ---
-            @st.cache_data
-            def convert_df_to_csv(df):
-                """Converts a DataFrame to a CSV file for downloading."""
-                return df.to_csv(index=False).encode('utf-8')
+                # --- Show Results ---
+                st.subheader(" Prediction Results")
+                st.dataframe(original_df[[
+                    'Country of FD Name', 'Item Category', 'Quantity', 'Transaction_Value',
+                    'Predicted Status', 'Approval Probability (%)'
+                ]])
 
-            csv_results = convert_df_to_csv(original_df)
-            st.download_button(
-                label="Download Full Results as CSV",
-                data=csv_results,
-                file_name="predicted_authorizations.csv",
-                mime="text/csv",
-            )
+                # --- Download Button ---
+                @st.cache_data
+                def convert_df(df):
+                    return df.to_csv(index=False).encode('utf-8')
 
-    except Exception as e:
-        st.error(f"An error occurred during processing: {e}")
-        st.warning("Please ensure your CSV file is formatted correctly and contains all necessary columns.")
+                st.download_button(
+                    label=" Download Predictions as CSV",
+                    data=convert_df(original_df),
+                    file_name='predicted_results.csv',
+                    mime='text/csv'
+                )
+
+        except Exception as e:
+            st.error(f"❌ Error during prediction: {e}")
+            st.info("📌 Please check if the file format and data types are correct.")
