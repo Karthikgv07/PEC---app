@@ -3,7 +3,7 @@ import pandas as pd
 import joblib
 import warnings
 
-# Suppress warnings in the deployed app
+# Suppress warnings in the deployed app for a cleaner interface
 warnings.filterwarnings('ignore')
 
 # --- Page Configuration ---
@@ -18,11 +18,11 @@ st.set_page_config(
 def load_model():
     """Load the pre-trained model from the .pkl file."""
     try:
-        # The path should correspond to the file in your GitHub repository
+        # This path must match the name of the model file in your GitHub repository
         model = joblib.load('best_export_clearance_model.pkl')
         return model
     except FileNotFoundError:
-        st.error("Model file not found. Please ensure 'best_export_clearance_model.pkl' is in the GitHub repository.")
+        st.error("Model file not found. Please ensure 'best_export_clearance_model.pkl' is in your GitHub repository.")
         return None
     except Exception as e:
         st.error(f"An error occurred while loading the model: {e}")
@@ -30,12 +30,11 @@ def load_model():
 
 model = load_model()
 
-# --- Main Application ---
+# --- Main Application Interface ---
 st.title("🚢 Export Authorization Status Predictor")
 st.markdown("""
 This application predicts whether an export transaction will be **Approved** or **Not Approved**.
-
-Upload a CSV file with your transaction data to get predictions. Please ensure your CSV has the required columns as used in the training data.
+Upload a CSV file with your transaction data to get predictions. Please ensure your CSV has the same columns as the data used for training the model.
 """)
 
 # --- File Uploader ---
@@ -50,25 +49,26 @@ if uploaded_file is not None and model is not None:
         # Keep a copy of the original data for display purposes
         original_df = input_df.copy()
 
-        # --- Feature Engineering (Must be IDENTICAL to the training script) ---
+        # --- Feature Engineering (This must be IDENTICAL to your training script) ---
         st.write("Applying feature engineering...")
         
         # Re-create the exact same features that the model was trained on
         input_df['Load Deviation'] = input_df['Quantity'] - input_df['Minimum Order Value']
         input_df['Transaction_Value'] = input_df['Quantity'] * input_df['Rate']
 
-        # Ensure all required features for the model are present
+        # Define the exact list of features the model expects
         required_features = [
             'Country of FD Name', 'Item Category', 'Quantity', 'Item Net Weight', 'Rate',
             'Invoice Quantity', 'Invoice Status', 'Extra Fields Final Destination',
             'Sourcing Type', 'Minimum Order Value', 'Load Deviation', 'Transaction_Value'
         ]
         
-        # Check if all required columns exist
+        # Check if all required columns exist in the uploaded file
         missing_cols = [col for col in required_features if col not in input_df.columns]
         if missing_cols:
             st.error(f"The uploaded CSV is missing the following required columns: {', '.join(missing_cols)}")
         else:
+            # Select the feature columns in the correct order
             X_predict = input_df[required_features]
 
             # --- Prediction ---
@@ -81,7 +81,7 @@ if uploaded_file is not None and model is not None:
             original_df['Approval Probability (%)'] = [f"{proba[1]*100:.2f}" for proba in prediction_proba]
 
             st.subheader("Prediction Results")
-            # Display relevant original columns plus the new prediction columns
+            # Display key original columns plus the new prediction columns
             st.dataframe(original_df[[
                 'Country of FD Name', 'Item Category', 'Quantity', 'Transaction_Value', 
                 'Predicted Status', 'Approval Probability (%)'
@@ -90,6 +90,7 @@ if uploaded_file is not None and model is not None:
             # --- Download Button ---
             @st.cache_data
             def convert_df_to_csv(df):
+                """Converts a DataFrame to a CSV file for downloading."""
                 return df.to_csv(index=False).encode('utf-8')
 
             csv_results = convert_df_to_csv(original_df)
@@ -102,4 +103,4 @@ if uploaded_file is not None and model is not None:
 
     except Exception as e:
         st.error(f"An error occurred during processing: {e}")
-        st.warning("Please ensure your CSV file is formatted correctly.")
+        st.warning("Please ensure your CSV file is formatted correctly and contains all necessary columns.")
